@@ -1,17 +1,26 @@
 import catalogData from '../data/catalog.json';
+import recipesData from '../data/recipes.json';
 import type {
+  ApplianceId,
   CartItem,
-  CartRecommendation,
   CatalogCategory,
   CatalogItem,
+  DietaryFilter,
+  GoalId,
   HouseholdSize,
   Meal,
+  VaultRecipe,
 } from '../types';
 
 export const CATALOG: CatalogItem[] = catalogData as CatalogItem[];
+export const RECIPES: VaultRecipe[] = recipesData as VaultRecipe[];
 
 export const CATALOG_MAP: Map<number, CatalogItem> = new Map(
   CATALOG.map((item) => [item.id, item])
+);
+
+export const RECIPE_MAP: Map<string, VaultRecipe> = new Map(
+  RECIPES.map((recipe) => [recipe.id, recipe])
 );
 
 export const CATEGORY_ORDER: CatalogCategory[] = [
@@ -32,6 +41,30 @@ export const CATEGORY_LABELS: Record<CatalogCategory, string> = {
   bakery: 'Bakery',
 };
 
+export const GOAL_LABELS: Record<GoalId, string> = {
+  high_protein: 'High-Protein Gym',
+  quick_20min: '20-Min Quick',
+  kenyan_comfort: 'Kenyan Comfort',
+  plant_forward: 'Clean & Plant-Forward',
+  budget_saver: 'Budget Saver',
+};
+
+export const DIETARY_LABELS: Record<DietaryFilter, string> = {
+  vegetarian: 'Vegetarian',
+  dairy_free: 'Dairy-Free',
+  gluten_free: 'Gluten-Free',
+  high_calorie: 'High-Calorie / Bulking',
+};
+
+export const APPLIANCE_LABELS: Record<ApplianceId, string> = {
+  stove: 'Gas / Electric Stove',
+  air_fryer: 'Air Fryer',
+  oven: 'Oven',
+  blender: 'Blender',
+  microwave: 'Microwave',
+  pressure_cooker: 'Pressure / Rice Cooker',
+};
+
 export function clampPackQty(qty: unknown): number {
   const num = Math.trunc(Number(qty) || 1);
   return Math.min(20, Math.max(1, num));
@@ -45,6 +78,75 @@ export function getServingsCount(householdSize: HouseholdSize): number {
   if (householdSize === '1 Person') return 1;
   if (householdSize === '4+ Family') return 4;
   return 2;
+}
+
+const FRACTION_MAP: Record<string, number> = {
+  '¼': 0.25,
+  '½': 0.5,
+  '¾': 0.75,
+  '⅓': 1 / 3,
+  '⅔': 2 / 3,
+};
+
+function formatScaledKitchenAmount(value: number): string {
+  if (value <= 0) return '0';
+  const whole = Math.floor(value + 1e-6);
+  const rem = value - whole;
+
+  const fractionEntries: [number, string][] = [
+    [0.25, '¼'],
+    [1 / 3, '⅓'],
+    [0.5, '½'],
+    [2 / 3, '⅔'],
+    [0.75, '¾'],
+  ];
+
+  if (rem < 0.08) {
+    return String(Math.max(1, whole));
+  }
+  if (rem > 0.92) {
+    return String(whole + 1);
+  }
+  for (const [frac, glyph] of fractionEntries) {
+    if (Math.abs(rem - frac) < 0.08) {
+      return whole > 0 ? `${whole}${glyph}` : glyph;
+    }
+  }
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+export function scaleIngredientDisplay(display: string, scaleFactor: number): string {
+  if (!display || Math.abs(scaleFactor - 1) < 0.01) return display;
+
+  const trimmed = display.trim();
+  const match = trimmed.match(
+    /^(\d+(?:\.\d+)?)(?:\s*([¼½¾⅓⅔]))?(.*)$|^([¼½¾⅓⅔])(.*)$/
+  );
+  if (!match) return display;
+
+  let numericValue = 0;
+  let rest = '';
+
+  if (match[1] !== undefined) {
+    numericValue = parseFloat(match[1]) + (match[2] ? FRACTION_MAP[match[2]] || 0 : 0);
+    rest = match[3] || '';
+  } else if (match[4] !== undefined) {
+    numericValue = FRACTION_MAP[match[4]] || 0;
+    rest = match[5] || '';
+  }
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return display;
+
+  const scaled = numericValue * scaleFactor;
+  // For grams/ml (e.g. 300g, 150ml), round to clean whole numbers
+  if (/^(?:g|ml|kg|l)\b/i.test(rest.trim())) {
+    const roundedMeasure =
+      scaled >= 20 ? Math.round(scaled / 5) * 5 : Math.max(1, Math.round(scaled));
+    return `${roundedMeasure}${rest}`;
+  }
+
+  return `${formatScaledKitchenAmount(scaled)}${rest}`;
 }
 
 export function isPantryStapleItem(item: CatalogItem): boolean {
@@ -71,7 +173,8 @@ export function computeMealCostPerServing(
     const cartItem = cartMap.get(id);
     if (cartItem && !cartItem.included) continue;
     const totalPackCost = cartItem ? cartItem.price * cartItem.qty : catalogItem.price;
-    const sharedAcrossDays = cartItem && cartItem.usedInDays.length > 0 ? cartItem.usedInDays.length : 1;
+    const sharedAcrossDays =
+      cartItem && cartItem.usedInDays.length > 0 ? cartItem.usedInDays.length : 1;
     mealCost += totalPackCost / sharedAcrossDays;
   }
 
@@ -99,58 +202,55 @@ export function computeSavingsSummary(meals: Meal[]): string {
     .filter((n): n is string => Boolean(n));
 
   if (sharedNames.length >= 2) {
-    return `Your ${meals.length}-day plan shares ${sharedNames.join(', ')} across multiple meals to cut waste and cost.`;
+    return `Shared-ingredient plan: your ${meals.length}-day menu reuses ${sharedNames.join(', ')} across multiple days to cut cost and waste.`;
   }
-  return `Your ${meals.length}-day menu reuses core pantry staples and fresh produce across multiple meals.`;
-}
-
-export function computeOptimizedPackQty(
-  item: CatalogItem,
-  usesAcrossMeals: number,
-  householdSize: HouseholdSize
-): number {
-  const mult = householdSize === '4+ Family' ? 2 : 1;
-  if (item.cat === 'protein' || item.cat === 'bakery') {
-    return clampPackQty(Math.ceil((usesAcrossMeals * mult) / 2));
-  }
-  if (item.cat === 'produce' && mult > 1 && usesAcrossMeals >= 2) {
-    return 2;
-  }
-  return 1;
+  return `Your ${meals.length}-day menu reuses core Zucchini pantry staples and fresh produce across multiple meals.`;
 }
 
 export function buildCartFromMenu(
   meals: Meal[],
-  cartRecommendations: CartRecommendation[],
+  householdSize: HouseholdSize = '2 People',
   previousItems?: CartItem[],
   ownedPantryIds?: Set<number>,
-  manualQtyIds?: Set<number>,
-  householdSize: HouseholdSize = '2 People'
+  manualQtyIds?: Set<number>
 ): CartItem[] {
+  const people = getServingsCount(householdSize);
   const prevMap = new Map((previousItems || []).map((i) => [i.id, i]));
 
-  // Merge duplicate catalog_ids from recommendations by summing and clamping 1-20
-  const recQtyMap = new Map<number, number>();
-  for (const r of cartRecommendations || []) {
-    const id = Number(r.catalog_id);
-    if (!Number.isSafeInteger(id) || !CATALOG_MAP.has(id)) continue;
-    const prevRecQty = recQtyMap.get(id) || 0;
-    recQtyMap.set(id, clampPackQty(prevRecQty + clampPackQty(r.qty)));
-  }
-
+  const scaledQtyByCatalogId = new Map<number, number>();
   const daysByCatalogId = new Map<number, Set<number>>();
+  const pantryHintByCatalogId = new Map<number, boolean>();
+
   for (const meal of meals) {
+    const baseServings =
+      Number.isFinite(meal.base_servings) && meal.base_servings > 0
+        ? meal.base_servings
+        : 2;
+    const scale = people / baseServings;
+
     for (const ing of meal.ingredients || []) {
       const id = Number(ing.catalog_id);
       if (!Number.isSafeInteger(id) || !CATALOG_MAP.has(id)) continue;
+
+      const qtyBase =
+        Number.isFinite(ing.qty_base) && ing.qty_base > 0 ? ing.qty_base : 0.5;
+      scaledQtyByCatalogId.set(
+        id,
+        (scaledQtyByCatalogId.get(id) || 0) + qtyBase * scale
+      );
+
       if (!daysByCatalogId.has(id)) {
         daysByCatalogId.set(id, new Set());
       }
       daysByCatalogId.get(id)!.add(meal.day);
+
+      if (ing.is_pantry) {
+        pantryHintByCatalogId.set(id, true);
+      }
     }
   }
 
-  // Keep items referenced in meals PLUS any manually added extras from previousItems
+  // Retain user-added extras not currently referenced by meals
   const extraIds = (previousItems || [])
     .filter((i) => i.isExtra && !daysByCatalogId.has(i.id) && CATALOG_MAP.has(i.id))
     .map((i) => i.id);
@@ -167,25 +267,23 @@ export function buildCartFromMenu(
     const isManual = Boolean(manualQtyIds && manualQtyIds.has(id));
     const isExtra = Boolean(prev?.isExtra && usedInDays.length === 0);
 
-    let rawQty: number;
+    let qty: number;
     if (prev && (isManual || isExtra)) {
-      rawQty = prev.qty;
-    } else if (previousItems && usedInDays.length > 0) {
-      // Re-optimize pack qty after a meal swap if user didn't lock a manual qty
-      const optimized = computeOptimizedPackQty(catalogItem, usedInDays.length, householdSize);
-      const recQty = recQtyMap.get(id);
-      rawQty = recQty ? Math.min(recQty, optimized) : optimized;
+      qty = clampPackQty(prev.qty);
     } else {
-      rawQty = recQtyMap.get(id) ?? 1;
+      const totalScaledQty = scaledQtyByCatalogId.get(id) || 0;
+      const cleanScaled = Math.round(totalScaledQty * 10000) / 10000;
+      qty = clampPackQty(Math.max(1, Math.ceil(cleanScaled)));
     }
 
-    const isPantry = isPantryStapleItem(catalogItem);
+    const isPantry =
+      isPantryStapleItem(catalogItem) || Boolean(pantryHintByCatalogId.get(id));
     const defaultIncluded =
       isPantry && ownedPantryIds && ownedPantryIds.has(id) ? false : true;
 
     items.push({
       ...catalogItem,
-      qty: clampPackQty(rawQty),
+      qty,
       included: prev ? prev.included : defaultIncluded,
       usedInDays,
       isPantryStaple: isPantry,

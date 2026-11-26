@@ -19,7 +19,12 @@ import type {
   SavedWeeklyFavorite,
   UserConfig,
 } from '../types';
-import { formatKes } from '../utils/catalogHelper';
+import {
+  APPLIANCE_LABELS,
+  DIETARY_LABELS,
+  formatKes,
+  RECIPES,
+} from '../utils/catalogHelper';
 import { ApplianceIllustration } from './ApplianceIcons';
 
 interface ConfiguratorViewProps {
@@ -36,37 +41,43 @@ interface ConfiguratorViewProps {
 const GOALS: {
   id: GoalId;
   label: string;
-  subtitle: string;
+  tagline: string;
+  photo: string;
   icon: typeof Flame;
 }[] = [
   {
-    id: 'high-protein-gym',
+    id: 'high_protein',
     label: 'High-Protein Gym',
-    subtitle: 'Lean cuts, eggs, and high protein per meal',
+    tagline: 'Lean cuts, eggs, and protein-dense plates (26g to 52g)',
+    photo: '/dishes/lemon-pepper-chicken-sweet-potato-skillet.jpg',
     icon: Flame,
   },
   {
-    id: '20-min-quick',
+    id: 'quick_20min',
     label: '20-Min Quick',
-    subtitle: 'Meals ready in 20 minutes or less',
+    tagline: 'Weeknight skillets and stir-fries ready in 20 minutes or less',
+    photo: '/dishes/teriyaki-chicken-udon.jpg',
     icon: Clock,
   },
   {
-    id: 'kenyan-comfort',
+    id: 'kenyan_comfort',
     label: 'Kenyan Comfort',
-    subtitle: 'Kenyan stews, greens, and everyday staples',
+    tagline: 'Rich tomato stews, sukuma, and warm matoke',
+    photo: '/dishes/kenyan-tomato-chicken-stew.jpg',
     icon: UtensilsCrossed,
   },
   {
-    id: 'clean-plant-forward',
+    id: 'plant_forward',
     label: 'Clean & Plant-Forward',
-    subtitle: 'Vegetables, legumes, and tofu',
+    tagline: 'Greens, chickpeas, avocado, and tofu',
+    photo: '/dishes/smashed-chickpea-avocado-toast.jpg',
     icon: Leaf,
   },
   {
-    id: 'budget-saver',
+    id: 'budget_saver',
     label: 'Budget Saver',
-    subtitle: 'Lowest cost per serving by reusing ingredients',
+    tagline: 'Lowest cost per serving with ingredient reuse',
+    photo: '/dishes/paprika-drumstick-potato-stew.jpg',
     icon: Wallet,
   },
 ];
@@ -74,25 +85,25 @@ const GOALS: {
 const HOUSEHOLD_OPTIONS: HouseholdSize[] = ['1 Person', '2 People', '4+ Family'];
 const DAY_OPTIONS: DaysCount[] = [3, 5, 7];
 const DIETARY_OPTIONS: DietaryFilter[] = [
-  'Vegetarian',
-  'Dairy-Free',
-  'Gluten-Free',
-  'High-Calorie / Bulking',
+  'vegetarian',
+  'dairy_free',
+  'gluten_free',
+  'high_calorie',
 ];
 
-const APPLIANCES: { id: ApplianceId; label: string }[] = [
-  { id: 'stove', label: 'Gas / Electric Stove' },
-  { id: 'air-fryer', label: 'Air Fryer' },
-  { id: 'oven', label: 'Oven' },
-  { id: 'blender', label: 'Blender' },
-  { id: 'microwave', label: 'Microwave' },
-  { id: 'pressure-cooker', label: 'Pressure / Rice Cooker' },
+const APPLIANCE_OPTIONS: ApplianceId[] = [
+  'stove',
+  'air_fryer',
+  'oven',
+  'blender',
+  'microwave',
+  'pressure_cooker',
 ];
 
 const LOADING_MESSAGES = [
   'Checking Zucchini shelves...',
-  'Matching pantry staples...',
-  'Optimizing your basket...',
+  `Scanning ${RECIPES.length}-recipe vault...`,
+  'Preparing your basket...',
 ];
 
 export function ConfiguratorView({
@@ -114,7 +125,7 @@ export function ConfiguratorView({
     }
     const timer = window.setInterval(() => {
       setLoadingIdx((prev) => (prev + 1) % LOADING_MESSAGES.length);
-    }, 1500);
+    }, 1400);
     return () => window.clearInterval(timer);
   }, [isLoading]);
 
@@ -140,11 +151,11 @@ export function ConfiguratorView({
   return (
     <div className="space-y-8 pb-24">
       <section className="space-y-2">
-        <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-[#18181B] text-balance">
+        <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--text)] text-balance">
           What are we cooking this week?
         </h1>
-        <p className="text-sm sm:text-base text-[#52525B] max-w-2xl">
-          Choose your meal goal, household size, and kitchen appliances to build a menu from Zucchini Nairobi products.
+        <p className="text-sm sm:text-base text-[var(--text-muted)] max-w-2xl">
+          Pick your vibe, household size, and kitchen setup to build a menu from Zucchini Nairobi stock.
         </p>
       </section>
 
@@ -154,12 +165,12 @@ export function ConfiguratorView({
           <div className="flex items-baseline justify-between">
             <h2
               id="saved-favorites-heading"
-              className="font-display text-base font-semibold text-[#18181B] inline-flex items-center gap-2"
+              className="font-display text-base font-semibold text-[var(--text)] inline-flex items-center gap-2"
             >
-              <Bookmark className="h-4 w-4 text-[#15803D]" />
+              <Bookmark className="h-4 w-4 text-[var(--accent-basil)]" aria-hidden="true" />
               <span>Saved weekly favorites</span>
             </h2>
-            <span className="text-xs text-[#52525B] tabular-nums">
+            <span className="text-xs text-[var(--text-muted)] tabular-nums">
               {savedFavorites.length} saved
             </span>
           </div>
@@ -174,20 +185,20 @@ export function ConfiguratorView({
               return (
                 <div
                   key={fav.id}
-                  className="rounded-2xl border border-[#18181B]/10 bg-white p-4 flex flex-col justify-between gap-3"
+                  className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 flex flex-col justify-between gap-3"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="font-display text-sm font-semibold text-[#18181B] truncate">
+                      <h3 className="font-display text-sm font-semibold text-[var(--text)] truncate">
                         {fav.name}
                       </h3>
-                      <p className="mt-0.5 text-xs text-[#52525B] tabular-nums">
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)] tabular-nums">
                         {fav.meals.length} meals · {fav.config.householdSize} ·{' '}
-                        <span className="font-semibold text-[#18181B]">
+                        <span className="font-semibold text-[var(--text)]">
                           {formatKes(totalKes)}
                         </span>
                       </p>
-                      <p className="mt-1 text-xs text-[#52525B] truncate">
+                      <p className="mt-1 text-xs text-[var(--text-muted)] truncate">
                         {fav.meals.map((m) => m.title).join(', ')}
                       </p>
                     </div>
@@ -195,24 +206,24 @@ export function ConfiguratorView({
                       type="button"
                       onClick={() => onDeleteFavorite(fav.id)}
                       aria-label={`Remove saved favorite ${fav.name}`}
-                      className="h-9 w-9 shrink-0 rounded-xl border border-[#18181B]/10 bg-[#FAF9F6] hover:bg-white flex items-center justify-center text-[#52525B] hover:text-[#9A3412] transition-colors duration-150"
+                      className="h-11 w-11 shrink-0 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--accent-ember-border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent-ember)] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)]"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2 pt-2 border-t border-[#18181B]/10">
+                  <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
                     <button
                       type="button"
                       onClick={() => onLoadFavorite(fav, false)}
-                      className="flex-1 h-10 px-3 rounded-xl border border-[#18181B]/10 bg-[#FAF9F6] hover:bg-white active:scale-[0.98] text-xs font-semibold text-[#18181B] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] whitespace-nowrap"
+                      className="flex-1 h-11 px-3 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--text-muted)] active:scale-[0.98] text-xs font-semibold text-[var(--text)] transition-[border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
                     >
                       Open menu
                     </button>
                     <button
                       type="button"
                       onClick={() => onLoadFavorite(fav, true)}
-                      className="flex-1 h-10 px-3 rounded-xl bg-[#15803D] hover:bg-[#166534] active:scale-[0.98] text-xs font-semibold text-white transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] whitespace-nowrap"
+                      className="flex-1 h-11 px-3 rounded-xl bg-[var(--accent-basil-solid)] hover:bg-[var(--accent-basil-solid-hover)] active:scale-[0.98] text-xs font-semibold text-white transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
                     >
                       Reorder cart
                     </button>
@@ -224,16 +235,20 @@ export function ConfiguratorView({
         </section>
       )}
 
-      {/* Step 1: Pick Your Vibe / Goal */}
+      {/* Step 1: Photographic Vibe / Goal Cards */}
       <section className="space-y-3" aria-labelledby="step-goal">
         <div className="flex items-baseline justify-between">
-          <h2 id="step-goal" className="font-display text-base font-semibold text-[#18181B]">
+          <h2 id="step-goal" className="font-display text-base font-semibold text-[var(--text)]">
             1. Pick your vibe
           </h2>
-          <span className="text-xs text-[#52525B]">Select one</span>
+          <span className="text-xs text-[var(--text-muted)]">Select one</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div
+          role="radiogroup"
+          aria-labelledby="step-goal"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+        >
           {GOALS.map((goal) => {
             const Icon = goal.icon;
             const active = config.goal === goal.id;
@@ -241,38 +256,60 @@ export function ConfiguratorView({
               <button
                 key={goal.id}
                 type="button"
+                role="radio"
+                aria-checked={active}
                 onClick={() => onChange({ ...config, goal: goal.id })}
-                className={`relative flex items-start gap-3 p-4 rounded-2xl border text-left transition-[border-color,background-color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] ${
+                className={`relative h-44 rounded-2xl overflow-hidden border text-left transition-[border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] ${
                   active
-                    ? 'bg-white border-[#15803D] shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
-                    : 'bg-white border-[#18181B]/10 hover:border-[#18181B]/25'
+                    ? 'border-[var(--accent-ember-solid)] ring-1 ring-[var(--accent-ember-solid)]'
+                    : 'border-[var(--border)] hover:border-[var(--accent-ember-border)]'
                 }`}
               >
+                <img
+                  src={goal.photo}
+                  alt={goal.label}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
                 <div
-                  className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors duration-150 ${
+                  className={`absolute inset-0 ${
                     active
-                      ? 'bg-[#15803D] text-white'
-                      : 'bg-[#FAF9F6] text-[#52525B] border border-[#18181B]/10'
+                      ? 'bg-gradient-to-t from-[#12100E]/95 via-[#12100E]/60 to-[#12100E]/20'
+                      : 'bg-gradient-to-t from-[#12100E]/95 via-[#12100E]/65 to-[#12100E]/25'
                   }`}
-                >
-                  <Icon className="h-5 w-5" strokeWidth={2} />
-                </div>
-                <div className="min-w-0 flex-1 pr-6">
-                  <div className="font-display text-sm font-semibold text-[#18181B]">
-                    {goal.label}
+                />
+
+                <div className="relative z-10 h-full p-4 flex flex-col justify-between">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                        active
+                          ? 'bg-[var(--accent-ember-solid)] border-[var(--accent-ember-solid)] text-white'
+                          : 'bg-[#12100E]/80 border-white/15 text-[#FAF5EE]'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" strokeWidth={2.1} />
+                    </span>
+
+                    {active && (
+                      <span
+                        className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-ember-solid)] text-white"
+                        aria-hidden="true"
+                      >
+                        <Check className="h-3.5 w-3.5" strokeWidth={2.6} />
+                      </span>
+                    )}
                   </div>
-                  <p className="mt-1 text-xs leading-relaxed text-[#52525B]">
-                    {goal.subtitle}
-                  </p>
+
+                  <div>
+                    <div className="font-display text-base font-semibold text-[#FAF5EE] leading-snug">
+                      {goal.label}
+                    </div>
+                    <p className="mt-0.5 text-xs text-[#E7E5E4] leading-relaxed">
+                      {goal.tagline}
+                    </p>
+                  </div>
                 </div>
-                {active && (
-                  <span
-                    className="absolute top-4 right-4 flex h-5 w-5 items-center justify-center rounded-full bg-[#15803D] text-white"
-                    aria-hidden="true"
-                  >
-                    <Check className="h-3 w-3" strokeWidth={2.5} />
-                  </span>
-                )}
               </button>
             );
           })}
@@ -282,21 +319,27 @@ export function ConfiguratorView({
       {/* Step 2: Household & Days */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6" aria-labelledby="step-household">
         <div className="space-y-3">
-          <h2 id="step-household" className="font-display text-base font-semibold text-[#18181B]">
+          <h2 id="step-household" className="font-display text-base font-semibold text-[var(--text)]">
             2. Household size
           </h2>
-          <div className="grid grid-cols-3 gap-3">
+          <div
+            role="radiogroup"
+            aria-labelledby="step-household"
+            className="grid grid-cols-3 gap-3"
+          >
             {HOUSEHOLD_OPTIONS.map((size) => {
               const active = config.householdSize === size;
               return (
                 <button
                   key={size}
                   type="button"
+                  role="radio"
+                  aria-checked={active}
                   onClick={() => onChange({ ...config, householdSize: size })}
-                  className={`h-12 px-3 rounded-xl border text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] ${
+                  className={`h-12 px-3 rounded-xl border text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] ${
                     active
-                      ? 'bg-[#15803D] border-[#15803D] text-white shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
-                      : 'bg-white border-[#18181B]/10 text-[#18181B] hover:border-[#18181B]/25'
+                      ? 'bg-[var(--accent-ember-solid)] border-[var(--accent-ember-solid)] text-white shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
+                      : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text)] hover:border-[var(--accent-ember-border)]'
                   }`}
                 >
                   {size}
@@ -307,24 +350,30 @@ export function ConfiguratorView({
         </div>
 
         <div className="space-y-3">
-          <h2 className="font-display text-base font-semibold text-[#18181B]">
+          <h2 id="step-days" className="font-display text-base font-semibold text-[var(--text)]">
             Plan length
           </h2>
-          <div className="grid grid-cols-3 gap-3">
+          <div
+            role="radiogroup"
+            aria-labelledby="step-days"
+            className="grid grid-cols-3 gap-3"
+          >
             {DAY_OPTIONS.map((days) => {
               const active = config.days === days;
               return (
                 <button
                   key={days}
                   type="button"
+                  role="radio"
+                  aria-checked={active}
                   onClick={() => onChange({ ...config, days })}
-                  className={`h-12 px-3 rounded-xl border text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] ${
+                  className={`h-12 px-3 rounded-xl border text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] ${
                     active
-                      ? 'bg-[#15803D] border-[#15803D] text-white shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
-                      : 'bg-white border-[#18181B]/10 text-[#18181B] hover:border-[#18181B]/25'
+                      ? 'bg-[var(--accent-ember-solid)] border-[var(--accent-ember-solid)] text-white shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
+                      : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text)] hover:border-[var(--accent-ember-border)]'
                   }`}
                 >
-                  {days} Days
+                  {days} days
                 </button>
               );
             })}
@@ -335,10 +384,10 @@ export function ConfiguratorView({
       {/* Step 3: Dietary Filters */}
       <section className="space-y-3" aria-labelledby="step-dietary">
         <div className="flex items-baseline justify-between">
-          <h2 id="step-dietary" className="font-display text-base font-semibold text-[#18181B]">
+          <h2 id="step-dietary" className="font-display text-base font-semibold text-[var(--text)]">
             3. Dietary filters
           </h2>
-          <span className="text-xs text-[#52525B]">Optional</span>
+          <span className="text-xs text-[var(--text-muted)]">Optional</span>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -348,59 +397,67 @@ export function ConfiguratorView({
               <button
                 key={filter}
                 type="button"
+                aria-pressed={active}
                 onClick={() => toggleDietary(filter)}
-                className={`inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] ${
+                className={`inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] ${
                   active
-                    ? 'bg-white border-[#EA580C] text-[#9A3412]'
-                    : 'bg-white border-[#18181B]/10 text-[#52525B] hover:border-[#18181B]/25 hover:text-[#18181B]'
+                    ? 'bg-[var(--accent-ember-tint)] border-[var(--accent-ember-border)] text-[var(--accent-ember)]'
+                    : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent-ember-border)] hover:text-[var(--text)]'
                 }`}
               >
-                {active && <Check className="h-3.5 w-3.5 text-[#EA580C]" strokeWidth={2.5} />}
-                <span>{filter}</span>
+                {active && (
+                  <Check
+                    className="h-3.5 w-3.5 text-[var(--accent-ember)]"
+                    strokeWidth={2.5}
+                    aria-hidden="true"
+                  />
+                )}
+                <span>{DIETARY_LABELS[filter]}</span>
               </button>
             );
           })}
         </div>
       </section>
 
-      {/* Step 4: What's in your kitchen? */}
+      {/* Step 4: Kitchen Appliances */}
       <section className="space-y-3" aria-labelledby="step-appliances">
         <div className="flex items-baseline justify-between">
-          <h2 id="step-appliances" className="font-display text-base font-semibold text-[#18181B]">
+          <h2 id="step-appliances" className="font-display text-base font-semibold text-[var(--text)]">
             4. What’s in your kitchen?
           </h2>
-          <span className="text-xs text-[#52525B]">Select what you own</span>
+          <span className="text-xs text-[var(--text-muted)]">Select what you own</span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {APPLIANCES.map((appliance) => {
-            const active = config.appliances.includes(appliance.id);
+          {APPLIANCE_OPTIONS.map((applianceId) => {
+            const active = config.appliances.includes(applianceId);
             return (
               <button
-                key={appliance.id}
+                key={applianceId}
                 type="button"
-                onClick={() => toggleAppliance(appliance.id)}
-                className={`relative flex flex-col items-center justify-center gap-2.5 p-5 rounded-2xl border text-center transition-[border-color,background-color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] ${
+                aria-pressed={active}
+                onClick={() => toggleAppliance(applianceId)}
+                className={`relative flex flex-col items-center justify-center gap-2.5 p-5 rounded-2xl border text-center transition-[border-color,background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] ${
                   active
-                    ? 'bg-white border-[#15803D] shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
-                    : 'bg-white border-[#18181B]/10 hover:border-[#18181B]/25'
+                    ? 'bg-[var(--surface)] border-[var(--accent-ember-solid)] ring-1 ring-[var(--accent-ember-border)] shadow-[0_1px_2px_rgb(0_0_0/0.05)]'
+                    : 'bg-[var(--surface)] border-[var(--border)] hover:border-[var(--accent-ember-border)]'
                 }`}
               >
                 {active && (
                   <span
-                    className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-[#15803D] text-white"
+                    className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent-ember-solid)] text-white"
                     aria-hidden="true"
                   >
                     <Check className="h-3 w-3" strokeWidth={2.5} />
                   </span>
                 )}
-                <ApplianceIllustration id={appliance.id} active={active} />
+                <ApplianceIllustration id={applianceId} active={active} />
                 <span
                   className={`text-xs sm:text-sm font-medium leading-snug ${
-                    active ? 'text-[#15803D] font-semibold' : 'text-[#18181B]'
+                    active ? 'text-[var(--accent-ember)] font-semibold' : 'text-[var(--text)]'
                   }`}
                 >
-                  {appliance.label}
+                  {APPLIANCE_LABELS[applianceId]}
                 </span>
               </button>
             );
@@ -411,17 +468,17 @@ export function ConfiguratorView({
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-[#EA580C] bg-white px-4 py-3 text-sm text-[#9A3412]"
+          className="rounded-xl border border-[var(--accent-ember-border)] bg-[var(--accent-ember-tint)] px-4 py-3 text-sm text-[var(--accent-ember)]"
         >
           {error}
         </div>
       )}
 
       {/* Sticky Bottom Primary CTA */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[#18181B]/10 bg-[#FAF9F6]">
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--border)] bg-[var(--bg)]">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between gap-4">
-          <div className="hidden sm:block text-xs text-[#52525B] tabular-nums">
-            <span className="font-medium text-[#18181B]">{config.days} days</span>
+          <div className="hidden sm:block text-xs text-[var(--text-muted)] tabular-nums">
+            <span className="font-medium text-[var(--text)]">{config.days} days</span>
             <span className="mx-1.5" aria-hidden="true">·</span>
             <span>{config.householdSize}</span>
             <span className="mx-1.5" aria-hidden="true">·</span>
@@ -431,17 +488,20 @@ export function ConfiguratorView({
             type="button"
             disabled={isLoading}
             onClick={onGenerate}
-            className="w-full sm:w-auto sm:min-w-64 h-12 px-6 rounded-xl bg-[#15803D] hover:bg-[#166534] active:scale-[0.98] disabled:opacity-80 text-white font-display font-semibold text-sm sm:text-base inline-flex items-center justify-center gap-2 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer whitespace-nowrap"
+            className="w-full sm:w-auto sm:min-w-64 h-12 px-6 rounded-xl bg-[var(--accent-basil-solid)] hover:bg-[var(--accent-basil-solid-hover)] active:scale-[0.98] disabled:opacity-80 text-white font-display font-semibold text-sm sm:text-base inline-flex items-center justify-center gap-2 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
           >
             {isLoading ? (
               <>
-                <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                <span
+                  aria-hidden="true"
+                  className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin"
+                />
                 <span>{LOADING_MESSAGES[loadingIdx]}</span>
               </>
             ) : (
               <>
                 <span>Generate my menu</span>
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </>
             )}
           </button>

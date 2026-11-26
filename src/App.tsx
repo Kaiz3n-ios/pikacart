@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
 import { PikaCartLogo } from './components/Logo';
 import { ConfiguratorView } from './components/ConfiguratorView';
 import { MenuView } from './components/MenuView';
@@ -11,10 +12,14 @@ import { CartView } from './components/CartView';
 import { CheckoutView } from './components/CheckoutView';
 import { AnalyticsModal } from './components/AnalyticsModal';
 import type {
+  ApplianceId,
   CartItem,
   CatalogItem,
+  DaysCount,
+  DietaryFilter,
   GeneratedMenuResponse,
   GoalId,
+  HouseholdSize,
   Meal,
   SavedWeeklyFavorite,
   SessionAnalytics,
@@ -23,29 +28,59 @@ import type {
 } from './types';
 import {
   buildCartFromMenu,
+  CATALOG,
   CATALOG_MAP,
   CATEGORY_ORDER,
   clampPackQty,
   computeSavingsSummary,
+  GOAL_LABELS,
   isPantryStapleItem,
+  RECIPE_MAP,
+  RECIPES,
 } from './utils/catalogHelper';
 
 type AppView = 'config' | 'menu' | 'cart' | 'checkout';
+type ThemeMode = 'dark' | 'light';
 
-const ANALYTICS_STORAGE_KEY = 'pikacart_session_analytics_v1';
-const APP_STATE_STORAGE_KEY = 'pikacart_app_state_v1';
-const FAVORITES_STORAGE_KEY = 'pikacart_saved_favorites_v1';
+const ANALYTICS_STORAGE_KEY = 'pikacart_v2_analytics';
+const APP_STATE_STORAGE_KEY = 'pikacart_v2_state';
+const FAVORITES_STORAGE_KEY = 'pikacart_v2_favorites';
+const THEME_STORAGE_KEY = 'pikacart_v2_theme';
 
-const GOAL_LABELS: Record<GoalId, string> = {
-  'high-protein-gym': 'High-Protein Gym',
-  '20-min-quick': '20-Min Quick',
-  'kenyan-comfort': 'Kenyan Comfort',
-  'clean-plant-forward': 'Clean & Plant-Forward',
-  'budget-saver': 'Budget Saver',
-};
+const VALID_GOALS = new Set<GoalId>([
+  'high_protein',
+  'quick_20min',
+  'kenyan_comfort',
+  'plant_forward',
+  'budget_saver',
+]);
+
+const VALID_HOUSEHOLDS = new Set<HouseholdSize>([
+  '1 Person',
+  '2 People',
+  '4+ Family',
+]);
+
+const VALID_DAYS = new Set<DaysCount>([3, 5, 7]);
+
+const VALID_DIETARY = new Set<DietaryFilter>([
+  'vegetarian',
+  'dairy_free',
+  'gluten_free',
+  'high_calorie',
+]);
+
+const VALID_APPLIANCES = new Set<ApplianceId>([
+  'stove',
+  'air_fryer',
+  'oven',
+  'blender',
+  'microwave',
+  'pressure_cooker',
+]);
 
 const DEFAULT_CONFIG: UserConfig = {
-  goal: 'kenyan-comfort',
+  goal: 'kenyan_comfort',
   householdSize: '2 People',
   days: 3,
   dietaryFilters: [],
@@ -69,6 +104,135 @@ interface PersistedState {
   manualQtyIds: number[];
 }
 
+function loadTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    return saved === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function sanitizeConfig(raw: unknown): UserConfig {
+  if (!raw || typeof raw !== 'object') return DEFAULT_CONFIG;
+  const obj = raw as Partial<UserConfig>;
+  const goal =
+    typeof obj.goal === 'string' && VALID_GOALS.has(obj.goal as GoalId)
+      ? (obj.goal as GoalId)
+      : DEFAULT_CONFIG.goal;
+  const householdSize =
+    typeof obj.householdSize === 'string' &&
+    VALID_HOUSEHOLDS.has(obj.householdSize as HouseholdSize)
+      ? (obj.householdSize as HouseholdSize)
+      : DEFAULT_CONFIG.householdSize;
+  const days =
+    typeof obj.days === 'number' && VALID_DAYS.has(obj.days as DaysCount)
+      ? (obj.days as DaysCount)
+      : DEFAULT_CONFIG.days;
+  const dietaryFilters = Array.isArray(obj.dietaryFilters)
+    ? obj.dietaryFilters.filter(
+        (d): d is DietaryFilter =>
+          typeof d === 'string' && VALID_DIETARY.has(d as DietaryFilter)
+      )
+    : [];
+  const appliances = Array.isArray(obj.appliances)
+    ? obj.appliances.filter(
+        (a): a is ApplianceId =>
+          typeof a === 'string' && VALID_APPLIANCES.has(a as ApplianceId)
+      )
+    : [];
+
+  return {
+    goal,
+    householdSize,
+    days,
+    dietaryFilters,
+    appliances: appliances.length > 0 ? appliances : ['stove'],
+  };
+}
+
+function validateAndHydrateMeals(rawMeals: unknown): Meal[] {
+  if (!Array.isArray(rawMeals)) return [];
+  const hydrated: Meal[] = [];
+
+  for (let i = 0; i < rawMeals.length; i++) {
+    const m = rawMeals[i];
+    if (!m || typeof m !== 'object') continue;
+    const obj = m as Partial<Meal>;
+
+    if (obj.is_dynamic_fallback) {
+      const validIngredients = Array.isArray(obj.ingredients)
+        ? obj.ingredients.filter(
+            (ing) =>
+              ing &&
+              Number.isSafeInteger(Number(ing.catalog_id)) &&
+              CATALOG_MAP.has(Number(ing.catalog_id))
+          )
+        : [];
+      if (validIngredients.length === 0 || typeof obj.title !== 'string') continue;
+
+      hydrated.push({
+        day: typeof obj.day === 'number' && obj.day > 0 ? obj.day : hydrated.length + 1,
+        id: typeof obj.id === 'string' ? obj.id : `dynamic-${hydrated.length + 1}`,
+        title: obj.title,
+        tagline: typeof obj.tagline === 'string' ? obj.tagline : '',
+        prep_mins: Number(obj.prep_mins) || 20,
+        protein_g: Number(obj.protein_g) || 24,
+        calories: Number(obj.calories) || 520,
+        base_servings: Number(obj.base_servings) || 2,
+        appliances: Array.isArray(obj.appliances) ? obj.appliances : ['stove'],
+        photo: '',
+        is_dynamic_fallback: true,
+        ingredients: validIngredients,
+        steps: Array.isArray(obj.steps) ? obj.steps.map(String) : [],
+      });
+      continue;
+    }
+
+    if (typeof obj.id === 'string' && RECIPE_MAP.has(obj.id)) {
+      const vaultRecipe = RECIPE_MAP.get(obj.id)!;
+      hydrated.push({
+        day: typeof obj.day === 'number' && obj.day > 0 ? obj.day : hydrated.length + 1,
+        id: vaultRecipe.id,
+        title: vaultRecipe.title,
+        tagline: vaultRecipe.tagline,
+        prep_mins: vaultRecipe.prep_mins,
+        protein_g: vaultRecipe.protein_g,
+        calories: vaultRecipe.calories,
+        base_servings: vaultRecipe.base_servings || 2,
+        appliances: vaultRecipe.appliances,
+        photo: vaultRecipe.photo,
+        is_dynamic_fallback: false,
+        ingredients: vaultRecipe.ingredients,
+        steps: vaultRecipe.steps,
+      });
+    }
+  }
+
+  return hydrated;
+}
+
+function hydrateCartItems(rawCart: unknown): CartItem[] {
+  if (!Array.isArray(rawCart)) return [];
+  const items: CartItem[] = [];
+  for (const raw of rawCart) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Partial<CartItem>;
+    const id = Number(item.id);
+    const live = CATALOG_MAP.get(id);
+    if (!live) continue;
+    items.push({
+      ...live,
+      qty: clampPackQty(item.qty),
+      included: typeof item.included === 'boolean' ? item.included : true,
+      usedInDays: Array.isArray(item.usedInDays) ? item.usedInDays : [],
+      isPantryStaple: Boolean(item.isPantryStaple) || isPantryStapleItem(live),
+      isExtra: Boolean(item.isExtra),
+    });
+  }
+  return items;
+}
+
 function loadAnalytics(): SessionAnalytics {
   try {
     const raw = localStorage.getItem(ANALYTICS_STORAGE_KEY);
@@ -90,10 +254,29 @@ function loadFavorites(): SavedWeeklyFavorite[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (f): f is SavedWeeklyFavorite =>
-        Boolean(f && typeof f.id === 'string' && Array.isArray(f.meals) && Array.isArray(f.cartItems))
-    );
+    const clean: SavedWeeklyFavorite[] = [];
+    for (const f of parsed) {
+      if (!f || typeof f !== 'object' || typeof f.id !== 'string') continue;
+      const validMeals = validateAndHydrateMeals(f.meals);
+      if (validMeals.length === 0) continue;
+      const validCart = hydrateCartItems(f.cartItems);
+      clean.push({
+        id: f.id,
+        name: typeof f.name === 'string' ? f.name : 'Saved Weekly Plan',
+        savedAt: typeof f.savedAt === 'string' ? f.savedAt : new Date().toISOString(),
+        config: sanitizeConfig(f.config),
+        meals: validMeals,
+        savingsSummary:
+          typeof f.savingsSummary === 'string'
+            ? f.savingsSummary
+            : computeSavingsSummary(validMeals),
+        cartItems: validCart,
+        manualQtyIds: Array.isArray(f.manualQtyIds)
+          ? f.manualQtyIds.filter((id: unknown): id is number => Number.isSafeInteger(id))
+          : [],
+      });
+    }
+    return clean;
   } catch {
     return [];
   }
@@ -101,7 +284,7 @@ function loadFavorites(): SavedWeeklyFavorite[] {
 
 function getMenuSignature(meals: Meal[], config: UserConfig): string {
   return `${config.goal}|${config.householdSize}|${config.days}|${meals
-    .map((m) => m.title)
+    .map((m) => m.id)
     .join('|')}`;
 }
 
@@ -121,8 +304,18 @@ function loadPersistedState(): PersistedState {
       };
     }
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
-    const meals = Array.isArray(parsed.meals) ? parsed.meals : [];
-    const cartItems = Array.isArray(parsed.cartItems) ? parsed.cartItems : [];
+    const config = sanitizeConfig(parsed.config);
+    const meals = validateAndHydrateMeals(parsed.meals);
+    const ownedPantryIds = Array.isArray(parsed.ownedPantryIds)
+      ? parsed.ownedPantryIds.filter((id) => Number.isSafeInteger(id))
+      : [];
+    const manualQtyIds = Array.isArray(parsed.manualQtyIds)
+      ? parsed.manualQtyIds.filter((id) => Number.isSafeInteger(id))
+      : [];
+    const cartItems =
+      meals.length > 0
+        ? hydrateCartItems(parsed.cartItems)
+        : [];
     const restoredView: AppView =
       parsed.view && parsed.view !== 'config' && meals.length > 0
         ? parsed.view
@@ -130,18 +323,25 @@ function loadPersistedState(): PersistedState {
 
     return {
       view: restoredView,
-      config: parsed.config || DEFAULT_CONFIG,
+      config,
       meals,
       savingsSummary:
         typeof parsed.savingsSummary === 'string' ? parsed.savingsSummary : '',
       usedFallback: Boolean(parsed.usedFallback),
-      cartItems,
-      ownedPantryIds: Array.isArray(parsed.ownedPantryIds)
-        ? parsed.ownedPantryIds.filter((id) => Number.isSafeInteger(id))
-        : [],
-      manualQtyIds: Array.isArray(parsed.manualQtyIds)
-        ? parsed.manualQtyIds.filter((id) => Number.isSafeInteger(id))
-        : [],
+      cartItems:
+        cartItems.length > 0
+          ? cartItems
+          : meals.length > 0
+            ? buildCartFromMenu(
+                meals,
+                config.householdSize,
+                undefined,
+                new Set(ownedPantryIds),
+                new Set(manualQtyIds)
+              )
+            : [],
+      ownedPantryIds,
+      manualQtyIds,
     };
   } catch {
     return {
@@ -160,6 +360,7 @@ function loadPersistedState(): PersistedState {
 export default function App() {
   const [initial] = useState<PersistedState>(loadPersistedState);
 
+  const [theme, setTheme] = useState<ThemeMode>(loadTheme);
   const [view, setView] = useState<AppView>(initial.view);
   const [config, setConfig] = useState<UserConfig>(initial.config);
   const [meals, setMeals] = useState<Meal[]>(initial.meals);
@@ -187,6 +388,15 @@ export default function App() {
 
   const [analytics, setAnalytics] = useState<SessionAnalytics>(loadAnalytics);
   const [analyticsOpen, setAnalyticsOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [theme]);
 
   useEffect(() => {
     try {
@@ -258,11 +468,10 @@ export default function App() {
       const ownedSet = new Set<number>(ownedPantryIds);
       const hydratedCart = buildCartFromMenu(
         data.meals,
-        data.cart_items,
+        config.householdSize,
         undefined,
         ownedSet,
-        new Set<number>(),
-        config.householdSize
+        new Set<number>()
       );
 
       setMeals(data.meals);
@@ -274,8 +483,7 @@ export default function App() {
         ...prev,
         menusGenerated: prev.menusGenerated + 1,
       }));
-      setView('menu');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      navigateToView('menu');
     } catch (err) {
       setError(
         err instanceof Error
@@ -298,7 +506,6 @@ export default function App() {
           config,
           dayToReplace,
           currentMeals: meals,
-          existingCatalogIds: cartItems.map((i) => i.id),
         }),
       });
 
@@ -316,29 +523,14 @@ export default function App() {
         m.day === dayToReplace ? data.meal : m
       );
 
-      const recMap = new Map<number, number>();
-      for (const c of cartItems) {
-        recMap.set(c.id, c.qty);
-      }
-      for (const adj of data.cart_adjustments || []) {
-        if (!recMap.has(adj.catalog_id)) {
-          recMap.set(adj.catalog_id, adj.qty);
-        }
-      }
-      const mergedRecs = Array.from(recMap.entries()).map(([catalog_id, qty]) => ({
-        catalog_id,
-        qty,
-      }));
-
       const ownedSet = new Set<number>(ownedPantryIds);
       const manualSet = new Set<number>(manualQtyIds);
       const updatedCart = buildCartFromMenu(
         updatedMeals,
-        mergedRecs,
+        config.householdSize,
         cartItems,
         ownedSet,
-        manualSet,
-        config.householdSize
+        manualSet
       );
 
       const activeIds = new Set(updatedCart.map((i) => i.id));
@@ -384,9 +576,7 @@ export default function App() {
   const handleUpdateQty = (id: number, delta: number) => {
     setCartItems((prev) =>
       prev.map((item) =>
-        item.id === id
-          ? { ...item, qty: clampPackQty(item.qty + delta) }
-          : item
+        item.id === id ? { ...item, qty: clampPackQty(item.qty + delta) } : item
       )
     );
     setManualQtyIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
@@ -589,19 +779,7 @@ export default function App() {
     fav: SavedWeeklyFavorite,
     goToCart = false
   ) => {
-    const hydratedFavoriteCart: CartItem[] = (fav.cartItems || [])
-      .filter((i) => CATALOG_MAP.has(i.id))
-      .map((i) => {
-        const live = CATALOG_MAP.get(i.id)!;
-        return {
-          ...live,
-          qty: clampPackQty(i.qty),
-          included: Boolean(i.included),
-          usedInDays: Array.isArray(i.usedInDays) ? i.usedInDays : [],
-          isPantryStaple: isPantryStapleItem(live),
-          isExtra: Boolean(i.isExtra),
-        };
-      });
+    const hydratedFavoriteCart = hydrateCartItems(fav.cartItems);
 
     setConfig(fav.config);
     setMeals(fav.meals);
@@ -611,8 +789,7 @@ export default function App() {
     setManualQtyIds(fav.manualQtyIds || []);
     setError(null);
     setSwapError(null);
-    setView(goToCart ? 'cart' : 'menu');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigateToView(goToCart ? 'cart' : 'menu');
   };
 
   const handleDeleteFavorite = (id: string) => {
@@ -628,23 +805,67 @@ export default function App() {
     { id: 'checkout', label: 'Checkout', enabled: hasMenu },
   ];
 
+  function navigateToView(target: AppView, pushHistory = true) {
+    setView(target);
+    if (pushHistory && typeof window !== 'undefined') {
+      const nextHash = `#${target}`;
+      if (window.location.hash !== nextHash) {
+        window.history.pushState({ view: target }, '', nextHash);
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  useEffect(() => {
+    const VALID_VIEWS = new Set<AppView>(['config', 'menu', 'cart', 'checkout']);
+    const initialHash = window.location.hash.replace('#', '') as AppView;
+    if (VALID_VIEWS.has(initialHash)) {
+      if (initialHash !== 'config' && meals.length > 0) {
+        setView(initialHash);
+      }
+    } else {
+      window.history.replaceState({ view }, '', `#${view}`);
+    }
+
+    const onPopState = (event: PopStateEvent) => {
+      const stateView = (event.state as { view?: AppView } | null)?.view;
+      const hashView = window.location.hash.replace('#', '') as AppView;
+      const candidate = stateView || hashView || 'config';
+      if (!VALID_VIEWS.has(candidate) || (candidate !== 'config' && meals.length === 0)) {
+        setView('config');
+        return;
+      }
+      setView(candidate);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [meals.length]);
+
   const handleNavigate = (target: AppView) => {
     if (!hasMenu && target !== 'config') return;
-    setView(target);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigateToView(target);
   };
 
   const hasStickyBottomBar = view !== 'checkout';
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FAF9F6] text-[#18181B]">
+    <div className="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2.5 focus:rounded-xl focus:bg-[var(--accent-basil-solid)] focus:text-white focus:text-sm focus:font-semibold focus:outline-none focus:ring-2 focus:ring-white"
+      >
+        Skip to main content
+      </a>
+
       {/* Sticky Header */}
-      <header className="sticky top-0 z-30 border-b border-[#18181B]/10 bg-[#FAF9F6]">
-        <div className="mx-auto max-w-5xl px-4 h-16 flex items-center justify-between gap-4">
+      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--bg)]">
+        <div className="mx-auto max-w-5xl px-4 h-16 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => handleNavigate('config')}
-            className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] rounded-lg"
+            className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] rounded-lg"
           >
             <PikaCartLogo />
           </button>
@@ -661,13 +882,14 @@ export default function App() {
                   key={tab.id}
                   type="button"
                   disabled={!tab.enabled}
+                  aria-current={active ? 'step' : undefined}
                   onClick={() => handleNavigate(tab.id)}
-                  className={`py-1 transition-colors duration-150 whitespace-nowrap shrink-0 border-b-2 ${
+                  className={`py-2 px-1 transition-colors duration-150 whitespace-nowrap shrink-0 border-b-2 rounded-t focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                     active
-                      ? 'border-[#15803D] text-[#15803D] font-semibold'
+                      ? 'border-[var(--accent-basil)] text-[var(--accent-basil)] font-semibold'
                       : tab.enabled
-                        ? 'border-transparent text-[#52525B] hover:text-[#18181B]'
-                        : 'border-transparent text-[#A1A1AA] cursor-not-allowed'
+                        ? 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
+                        : 'border-transparent text-[var(--text-muted)]/40 cursor-not-allowed'
                   }`}
                 >
                   {tab.label}
@@ -676,16 +898,35 @@ export default function App() {
             })}
           </nav>
 
-          {/* Store sync badge */}
-          <div className="inline-flex items-center rounded-full border border-[#15803D]/25 bg-white px-3 py-1 text-xs font-medium text-[#15803D] whitespace-nowrap shrink-0">
-            Synced with Zucchini Nairobi
+          {/* Right Header Controls */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="h-11 w-11 sm:h-10 sm:w-10 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent-ember-border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4 text-[var(--accent-ember)]" aria-hidden="true" />
+              ) : (
+                <Moon className="h-4 w-4 text-[var(--text)]" aria-hidden="true" />
+              )}
+            </button>
+
+            <div className="hidden sm:inline-flex items-center rounded-full border border-[var(--accent-basil-border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium text-[var(--accent-basil)] whitespace-nowrap shrink-0">
+              Synced with Zucchini Nairobi
+            </div>
           </div>
         </div>
       </header>
 
-      {/* Mobile compact step bar (shown only once a menu exists) */}
+      {/* Mobile compact step bar */}
       {hasMenu && (
-        <div className="md:hidden border-b border-[#18181B]/10 bg-white">
+        <nav
+          aria-label="Mobile meal planning steps"
+          className="md:hidden border-b border-[var(--border)] bg-[var(--surface)]"
+        >
           <div className="mx-auto max-w-5xl px-4 flex items-center justify-between gap-1">
             {navItems.map((tab) => {
               const active = view === tab.id;
@@ -693,11 +934,12 @@ export default function App() {
                 <button
                   key={tab.id}
                   type="button"
+                  aria-current={active ? 'step' : undefined}
                   onClick={() => handleNavigate(tab.id)}
-                  className={`flex-1 py-2.5 text-xs font-semibold text-center border-b-2 transition-colors duration-150 whitespace-nowrap ${
+                  className={`flex-1 min-h-[44px] py-2.5 text-xs font-semibold text-center border-b-2 transition-colors duration-150 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                     active
-                      ? 'border-[#15803D] text-[#15803D]'
-                      : 'border-transparent text-[#52525B]'
+                      ? 'border-[var(--accent-basil)] text-[var(--accent-basil)]'
+                      : 'border-transparent text-[var(--text-muted)]'
                   }`}
                 >
                   {tab.label}
@@ -705,11 +947,15 @@ export default function App() {
               );
             })}
           </div>
-        </div>
+        </nav>
       )}
 
       {/* Main Content */}
-      <main className="flex-1 mx-auto w-full max-w-5xl px-4 pt-6 sm:pt-8">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex-1 mx-auto w-full max-w-5xl px-4 pt-6 sm:pt-8 focus:outline-none"
+      >
         {view === 'config' && (
           <ConfiguratorView
             config={config}
@@ -745,6 +991,7 @@ export default function App() {
         {view === 'cart' && (
           <CartView
             items={cartItems}
+            meals={meals}
             onToggleInclude={handleToggleInclude}
             onUpdateQty={handleUpdateQty}
             onExcludeAllPantry={handleExcludeAllPantry}
@@ -768,18 +1015,24 @@ export default function App() {
         )}
       </main>
 
-      {/* Subtle Footer with Demo Analytics */}
+      {/* Footer with Vault Verification & Demo Analytics */}
       <footer
-        className={`border-t border-[#18181B]/10 bg-[#FAF9F6] py-5 ${
+        className={`border-t border-[var(--border)] bg-[var(--bg)] py-5 ${
           hasStickyBottomBar ? 'mb-16 sm:mb-14' : ''
         }`}
       >
-        <div className="mx-auto max-w-5xl px-4 flex flex-wrap items-center justify-between gap-3 text-xs text-[#52525B]">
-          <span>PikaCart, synced with Zucchini Food Market Nairobi</span>
+        <div className="mx-auto max-w-5xl px-4 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--text-muted)]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>PikaCart, synced with Zucchini Food Market Nairobi</span>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">
+              Vault: {RECIPES.length} recipes • {CATALOG.length} Zucchini SKUs
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => setAnalyticsOpen(true)}
-            className="font-medium text-[#52525B] hover:text-[#18181B] underline underline-offset-4 py-1 transition-colors duration-150"
+            className="min-h-[44px] px-1 font-medium text-[var(--text-muted)] hover:text-[var(--text)] underline underline-offset-4 transition-colors duration-150 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
           >
             Demo analytics
           </button>

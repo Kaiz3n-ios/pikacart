@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
   ArrowUpDown,
   Check,
+  Copy,
   Minus,
   Package,
   Plus,
@@ -11,16 +12,19 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { CartItem, CatalogCategory, CatalogItem } from '../types';
+import type { CartItem, CatalogCategory, CatalogItem, Meal } from '../types';
 import {
+  buildWhatsAppShoppingList,
   CATALOG,
   CATEGORY_LABELS,
   CATEGORY_ORDER,
   formatKes,
 } from '../utils/catalogHelper';
+import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
 
 interface CartViewProps {
   items: CartItem[];
+  meals: Meal[];
   onToggleInclude: (id: number) => void;
   onUpdateQty: (id: number, delta: number) => void;
   onExcludeAllPantry: () => void;
@@ -36,8 +40,8 @@ function ProductThumb({ src, alt }: { src: string; alt: string }) {
 
   if (failed || !src) {
     return (
-      <div className="h-12 w-12 shrink-0 rounded-xl border border-[#18181B]/10 bg-[#FAF9F6] flex items-center justify-center text-[#52525B]">
-        <Package className="h-5 w-5" />
+      <div className="h-12 w-12 shrink-0 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] flex items-center justify-center text-[var(--text-muted)]">
+        <Package className="h-5 w-5" aria-hidden="true" />
       </div>
     );
   }
@@ -46,15 +50,17 @@ function ProductThumb({ src, alt }: { src: string; alt: string }) {
     <img
       src={src}
       alt={alt}
+      loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
-      className="h-12 w-12 shrink-0 rounded-xl border border-[#18181B]/10 bg-white object-cover"
+      className="h-12 w-12 shrink-0 rounded-xl border border-[var(--border)] bg-white object-cover"
     />
   );
 }
 
 export function CartView({
   items,
+  meals,
   onToggleInclude,
   onUpdateQty,
   onExcludeAllPantry,
@@ -68,6 +74,10 @@ export function CartView({
   const [swapTarget, setSwapTarget] = useState<CartItem | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<CatalogCategory | 'all'>('all');
+  const [copiedList, setCopiedList] = useState(false);
+
+  const modalDialogRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pantryItems = items.filter((i) => i.isPantryStaple);
   const includedPantryItems = pantryItems.filter((i) => i.included);
@@ -118,6 +128,29 @@ export function CartView({
     setSearchQuery('');
   };
 
+  useModalFocusTrap(catalogModalOpen, modalDialogRef, closeCatalogModal, searchInputRef);
+
+  const handleCopyShoppingList = async () => {
+    if (activeItems.length === 0) return;
+    const text = buildWhatsAppShoppingList(items, meals);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedList(true);
+      window.setTimeout(() => setCopiedList(false), 2600);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopiedList(true);
+      window.setTimeout(() => setCopiedList(false), 2600);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-24">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
@@ -125,16 +158,16 @@ export function CartView({
           <button
             type="button"
             onClick={onBackToMenu}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#52525B] hover:text-[#18181B] mb-2 py-1 transition-colors duration-150"
+            className="inline-flex items-center gap-1.5 min-h-[44px] pr-2 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)] mb-1 transition-colors duration-150 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
             <span>Back to menu</span>
           </button>
-          <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-[#18181B] text-balance">
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--text)] text-balance">
             Grocery cart
           </h1>
-          <p className="mt-1 text-sm text-[#52525B]">
-            Turn off spices or oils you already own, swap products, or add extras from Zucchini.
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Quantities scale to your household. Turn off spices you already own or swap items.
           </p>
         </div>
 
@@ -143,31 +176,54 @@ export function CartView({
             <button
               type="button"
               onClick={onExcludeAllPantry}
-              className={`inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-xs sm:text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap ${
+              aria-pressed={allPantryExcluded}
+              className={`inline-flex items-center gap-2 h-11 px-4 rounded-xl border text-xs sm:text-sm font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                 allPantryExcluded
-                  ? 'bg-white border-[#15803D] text-[#15803D]'
-                  : 'bg-white border-[#18181B]/10 hover:border-[#EA580C] text-[#18181B]'
+                  ? 'bg-[var(--accent-basil-tint)] border-[var(--accent-basil-border)] text-[var(--accent-basil)]'
+                  : 'bg-[var(--surface)] border-[var(--border)] hover:border-[var(--accent-ember-border)] text-[var(--text)]'
               }`}
             >
               <Check
+                aria-hidden="true"
                 className={`h-4 w-4 ${
-                  allPantryExcluded ? 'text-[#15803D]' : 'text-[#EA580C]'
+                  allPantryExcluded
+                    ? 'text-[var(--accent-basil)]'
+                    : 'text-[var(--accent-ember)]'
                 }`}
               />
               <span>
                 {allPantryExcluded
-                  ? 'Spices and oils excluded'
-                  : `Exclude spices I own (${formatKes(includedPantryTotal)})`}
+                  ? 'Spices & oils excluded'
+                  : `Exclude spices & oils I already own (${formatKes(includedPantryTotal)})`}
               </span>
             </button>
           )}
 
           <button
             type="button"
-            onClick={openAddModal}
-            className="inline-flex items-center gap-1.5 h-11 px-4 rounded-xl border border-[#18181B]/10 bg-white hover:border-[#15803D] text-[#18181B] text-xs sm:text-sm font-medium transition-[border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap"
+            disabled={activeItems.length === 0}
+            onClick={handleCopyShoppingList}
+            className="inline-flex items-center gap-1.5 h-11 px-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent-basil-border)] disabled:opacity-45 text-[var(--text)] text-xs sm:text-sm font-medium transition-[border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
           >
-            <Plus className="h-4 w-4 text-[#15803D]" />
+            {copiedList ? (
+              <>
+                <Check className="h-4 w-4 text-[var(--accent-basil)]" aria-hidden="true" />
+                <span className="text-[var(--accent-basil)]">List copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
+                <span>Copy list</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="inline-flex items-center gap-1.5 h-11 px-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent-basil-border)] text-[var(--text)] text-xs sm:text-sm font-medium transition-[border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
+          >
+            <Plus className="h-4 w-4 text-[var(--accent-basil)]" aria-hidden="true" />
             <span>Add Zucchini item</span>
           </button>
         </div>
@@ -182,70 +238,64 @@ export function CartView({
           return (
             <section key={cat} className="space-y-3">
               <div className="flex items-baseline justify-between px-1">
-                <h2 className="font-display text-sm font-semibold text-[#18181B]">
+                <h2 className="font-display text-sm font-semibold text-[var(--text)]">
                   {CATEGORY_LABELS[cat]}
                 </h2>
-                <span className="text-xs text-[#52525B] tabular-nums">
+                <span className="text-xs text-[var(--text-muted)] tabular-nums">
                   {catItems.filter((i) => i.included).length} of {catItems.length} in cart
                 </span>
               </div>
 
-              <div className="rounded-2xl border border-[#18181B]/10 bg-white divide-y divide-[#18181B]/10 overflow-hidden">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] divide-y divide-[var(--border)] overflow-hidden">
                 {catItems.map((item) => {
                   const lineTotal = item.price * item.qty;
                   return (
                     <div
                       key={item.id}
                       className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-opacity duration-150 ${
-                        item.included ? 'opacity-100' : 'opacity-60 bg-[#FAF9F6]'
+                        item.included ? 'opacity-100' : 'opacity-65 bg-[var(--surface-elevated)]'
                       }`}
                     >
                       <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
                         <ProductThumb src={item.img} alt={item.name} />
                         <div className="min-w-0 flex-1">
                           <h3
-                            className={`text-sm font-semibold text-[#18181B] leading-snug ${
+                            className={`text-sm font-semibold text-[var(--text)] leading-snug ${
                               !item.included ? 'line-through' : ''
                             }`}
                           >
                             {item.name}
                           </h3>
 
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-[#52525B] tabular-nums">
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-muted)] tabular-nums">
                             <span>{item.unit}</span>
                             <span aria-hidden="true">·</span>
-                            <span className="font-semibold text-[#18181B]">
+                            <span className="font-semibold text-[var(--text)]">
                               {formatKes(item.price)}
                             </span>
                             {item.usedInDays.length > 0 ? (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span className="text-[#15803D] font-medium">
-                                  {item.usedInDays.map((d) => `Day ${d}`).join(', ')}
-                                </span>
-                              </>
+                              <span className="inline-flex items-center rounded-md bg-[var(--accent-basil-tint)] px-1.5 py-0.5 text-xs font-medium text-[var(--accent-basil)]">
+                                {item.usedInDays.map((d) => `Day ${d}`).join(', ')}
+                              </span>
                             ) : (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span className="text-[#EA580C] font-medium">
-                                  Added extra
-                                </span>
-                              </>
+                              <span className="inline-flex items-center rounded-md bg-[var(--accent-ember-tint)] px-1.5 py-0.5 text-xs font-medium text-[var(--accent-ember)]">
+                                Added extra
+                              </span>
                             )}
                           </div>
                         </div>
                       </div>
 
                       {/* Controls: Swap/Remove + Stepper + Include Toggle */}
-                      <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#18181B]/5">
+                      <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--border)]">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => openSwapModal(item)}
                             title={`Swap ${item.name} for another ${CATEGORY_LABELS[item.cat]} item`}
-                            className="inline-flex items-center gap-1 h-10 px-2.5 rounded-xl border border-[#18181B]/10 bg-[#FAF9F6] hover:bg-white text-xs font-medium text-[#52525B] hover:text-[#18181B] transition-colors duration-150 whitespace-nowrap"
+                            className="inline-flex items-center gap-1 h-11 sm:h-10 px-3 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--text-muted)] text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)] transition-colors duration-150 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
                           >
-                            <ArrowUpDown className="h-3.5 w-3.5" />
+                            <ArrowUpDown className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>Swap</span>
                           </button>
 
@@ -254,25 +304,25 @@ export function CartView({
                               type="button"
                               aria-label={`Remove ${item.name}`}
                               onClick={() => onRemoveExtraItem(item.id)}
-                              className="h-10 w-10 rounded-xl border border-[#18181B]/10 bg-[#FAF9F6] hover:bg-white flex items-center justify-center text-[#52525B] hover:text-[#9A3412] transition-colors duration-150"
+                              className="h-11 w-11 sm:h-10 sm:w-10 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] hover:border-[var(--accent-ember-border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent-ember)] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ember)]"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
                             </button>
                           )}
                         </div>
 
                         {/* Qty Stepper */}
-                        <div className="inline-flex items-center rounded-xl border border-[#18181B]/10 bg-[#FAF9F6]">
+                        <div className="inline-flex items-center rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)]">
                           <button
                             type="button"
                             aria-label={`Decrease quantity for ${item.name}`}
                             disabled={!item.included || item.qty <= 1}
                             onClick={() => onUpdateQty(item.id, -1)}
-                            className="h-10 w-10 flex items-center justify-center text-[#18181B] disabled:opacity-35 hover:bg-white rounded-l-xl transition-colors duration-150"
+                            className="h-11 w-11 sm:h-10 sm:w-10 flex items-center justify-center text-[var(--text)] disabled:opacity-35 hover:bg-black/5 rounded-l-xl transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
                           >
-                            <Minus className="h-3.5 w-3.5" />
+                            <Minus className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
-                          <span className="w-8 text-center text-sm font-semibold tabular-nums text-[#18181B]">
+                          <span className="w-8 text-center text-sm font-semibold tabular-nums text-[var(--text)]">
                             {item.qty}
                           </span>
                           <button
@@ -280,14 +330,14 @@ export function CartView({
                             aria-label={`Increase quantity for ${item.name}`}
                             disabled={!item.included || item.qty >= 20}
                             onClick={() => onUpdateQty(item.id, 1)}
-                            className="h-10 w-10 flex items-center justify-center text-[#18181B] disabled:opacity-35 hover:bg-white rounded-r-xl transition-colors duration-150"
+                            className="h-11 w-11 sm:h-10 sm:w-10 flex items-center justify-center text-[var(--text)] disabled:opacity-35 hover:bg-black/5 rounded-r-xl transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
                           >
-                            <Plus className="h-3.5 w-3.5" />
+                            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         </div>
 
                         {/* Line subtotal on desktop */}
-                        <div className="hidden md:block w-20 text-right text-sm font-semibold tabular-nums text-[#18181B]">
+                        <div className="hidden md:block w-20 text-right text-sm font-semibold tabular-nums text-[var(--text)]">
                           {item.included ? formatKes(lineTotal) : 'KES 0'}
                         </div>
 
@@ -297,12 +347,12 @@ export function CartView({
                           role="switch"
                           aria-checked={item.included}
                           onClick={() => onToggleInclude(item.id)}
-                          className={`h-10 px-3 rounded-xl border text-xs font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap shrink-0 ${
+                          className={`h-11 sm:h-10 px-3 rounded-xl border text-xs font-medium transition-[border-color,background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                             item.included
                               ? item.isPantryStaple
-                                ? 'bg-white border-[#18181B]/10 text-[#18181B] hover:border-[#EA580C] hover:text-[#EA580C]'
-                                : 'bg-white border-[#15803D]/40 text-[#15803D]'
-                              : 'bg-[#FAF9F6] border-[#EA580C] text-[#9A3412]'
+                                ? 'bg-[var(--surface-elevated)] border-[var(--border)] text-[var(--text)] hover:border-[var(--accent-ember-border)] hover:text-[var(--accent-ember)]'
+                                : 'bg-[var(--accent-basil-tint)] border-[var(--accent-basil-border)] text-[var(--accent-basil)]'
+                              : 'bg-[var(--accent-ember-tint)] border-[var(--accent-ember-border)] text-[var(--accent-ember)]'
                           }`}
                         >
                           {item.included
@@ -324,17 +374,24 @@ export function CartView({
       {/* Add / Swap Zucchini Catalog Drawer Modal */}
       {catalogModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 p-0 sm:p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/55 p-0 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="catalog-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeCatalogModal();
+          }}
         >
-          <div className="w-full sm:max-w-lg max-h-[85vh] flex flex-col rounded-t-3xl sm:rounded-3xl border border-[#18181B]/10 bg-white shadow-[0_8px_24px_rgb(0_0_0/0.06)] overflow-hidden">
-            <div className="p-5 border-b border-[#18181B]/10 space-y-3">
+          <div
+            ref={modalDialogRef}
+            tabIndex={-1}
+            className="w-full sm:max-w-lg max-h-[85vh] flex flex-col rounded-t-3xl sm:rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_8px_24px_rgb(0_0_0/0.06)] overflow-hidden focus:outline-none"
+          >
+            <div className="p-5 border-b border-[var(--border)] space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <h2
                   id="catalog-modal-title"
-                  className="font-display text-base font-semibold text-[#18181B] truncate"
+                  className="font-display text-base font-semibold text-[var(--text)] truncate"
                 >
                   {swapTarget
                     ? `Swap ${swapTarget.name}`
@@ -344,15 +401,23 @@ export function CartView({
                   type="button"
                   onClick={closeCatalogModal}
                   aria-label="Close product picker"
-                  className="h-10 w-10 rounded-xl flex items-center justify-center text-[#52525B] hover:bg-[#FAF9F6] hover:text-[#18181B] shrink-0"
+                  className="h-11 w-11 rounded-xl flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text)] shrink-0 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
 
               <div className="relative">
-                <Search className="h-4 w-4 text-[#52525B] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <label htmlFor="catalog-search-input" className="sr-only">
+                  Search Zucchini catalog
+                </label>
+                <Search
+                  className="h-4 w-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  aria-hidden="true"
+                />
                 <input
+                  ref={searchInputRef}
+                  id="catalog-search-input"
                   type="search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -361,8 +426,7 @@ export function CartView({
                       ? `Search ${CATEGORY_LABELS[swapTarget.cat]}...`
                       : 'Search chicken, oats, avocado, milk...'
                   }
-                  aria-label="Search Zucchini catalog"
-                  className="w-full h-11 pl-9 pr-3 rounded-xl border border-[#18181B]/15 bg-[#FAF9F6] text-sm text-[#18181B] placeholder:text-[#71717A] focus:outline-none focus:border-[#15803D]"
+                  className="w-full h-11 pl-9 pr-3 rounded-xl border border-[var(--border)] bg-[var(--surface-elevated)] text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] focus-visible:border-[var(--accent-basil)]"
                 />
               </div>
 
@@ -370,11 +434,12 @@ export function CartView({
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                   <button
                     type="button"
+                    aria-pressed={selectedCategory === 'all'}
                     onClick={() => setSelectedCategory('all')}
-                    className={`h-8 px-3 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                    className={`h-11 sm:h-9 px-3 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                       selectedCategory === 'all'
-                        ? 'bg-[#15803D] text-white'
-                        : 'bg-[#FAF9F6] text-[#52525B] hover:text-[#18181B]'
+                        ? 'bg-[var(--accent-basil-solid)] text-white'
+                        : 'bg-[var(--surface-elevated)] text-[var(--text-muted)] hover:text-[var(--text)]'
                     }`}
                   >
                     All
@@ -383,11 +448,12 @@ export function CartView({
                     <button
                       key={cat}
                       type="button"
+                      aria-pressed={selectedCategory === cat}
                       onClick={() => setSelectedCategory(cat)}
-                      className={`h-8 px-3 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                      className={`h-11 sm:h-9 px-3 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                         selectedCategory === cat
-                          ? 'bg-[#15803D] text-white'
-                          : 'bg-[#FAF9F6] text-[#52525B] hover:text-[#18181B]'
+                          ? 'bg-[var(--accent-basil-solid)] text-white'
+                          : 'bg-[var(--surface-elevated)] text-[var(--text-muted)] hover:text-[var(--text)]'
                       }`}
                     >
                       {CATEGORY_LABELS[cat]}
@@ -397,9 +463,9 @@ export function CartView({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto divide-y divide-[#18181B]/10 p-2">
+            <div className="flex-1 overflow-y-auto divide-y divide-[var(--border)] p-2">
               {browseResults.length === 0 ? (
-                <div className="py-12 text-center text-sm text-[#52525B]">
+                <div className="py-12 text-center text-sm text-[var(--text-muted)]">
                   No matching products found in the Zucchini catalog.
                 </div>
               ) : (
@@ -413,10 +479,10 @@ export function CartView({
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <ProductThumb src={catItem.img} alt={catItem.name} />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-[#18181B] truncate">
+                          <div className="text-sm font-medium text-[var(--text)] truncate">
                             {catItem.name}
                           </div>
-                          <div className="text-xs text-[#52525B] tabular-nums">
+                          <div className="text-xs text-[var(--text-muted)] tabular-nums">
                             {catItem.unit} · {formatKes(catItem.price)}
                           </div>
                         </div>
@@ -429,7 +495,7 @@ export function CartView({
                             onSwapCartItem(swapTarget.id, catItem);
                             closeCatalogModal();
                           }}
-                          className="h-9 px-3.5 rounded-xl bg-[#15803D] hover:bg-[#166534] text-white text-xs font-semibold whitespace-nowrap shrink-0"
+                          className="h-11 sm:h-9 px-3.5 rounded-xl bg-[var(--accent-basil-solid)] hover:bg-[var(--accent-basil-solid-hover)] text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)]"
                         >
                           Use this
                         </button>
@@ -437,13 +503,13 @@ export function CartView({
                         <button
                           type="button"
                           onClick={() => onAddExtraItem(catItem)}
-                          className={`h-9 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
+                          className={`h-11 sm:h-9 px-3.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] ${
                             alreadyInCart
-                              ? 'border border-[#15803D]/30 bg-white text-[#15803D] hover:bg-[#FAF9F6]'
-                              : 'bg-[#15803D] hover:bg-[#166534] text-white'
+                              ? 'border border-[var(--accent-basil-border)] bg-[var(--accent-basil-tint)] text-[var(--accent-basil)]'
+                              : 'bg-[var(--accent-basil-solid)] hover:bg-[var(--accent-basil-solid-hover)] text-white'
                           }`}
                         >
-                          {alreadyInCart ? '+1 More' : 'Add'}
+                          {alreadyInCart ? '+1 more' : 'Add'}
                         </button>
                       )}
                     </div>
@@ -456,21 +522,21 @@ export function CartView({
       )}
 
       {/* Live Sticky Summary Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[#18181B]/10 bg-[#FAF9F6]">
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--border)] bg-[var(--bg)]">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 text-xs text-[#52525B] tabular-nums">
+            <div className="flex flex-wrap items-center gap-x-2 text-xs text-[var(--text-muted)] tabular-nums">
               <span>{activeItems.length} items</span>
               {savedKes > 0 && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="text-[#15803D] font-medium">
+                  <span className="text-[var(--accent-basil)] font-medium">
                     Saved {formatKes(savedKes)}
                   </span>
                 </>
               )}
             </div>
-            <div className="font-display text-base sm:text-lg font-semibold text-[#18181B] tabular-nums">
+            <div className="font-display text-base sm:text-lg font-semibold text-[var(--text)] tabular-nums">
               Total: {formatKes(totalKes)}
             </div>
           </div>
@@ -479,10 +545,10 @@ export function CartView({
             type="button"
             disabled={activeItems.length === 0}
             onClick={onProceedToCheckout}
-            className="h-12 px-5 sm:px-6 rounded-xl bg-[#15803D] hover:bg-[#166534] active:scale-[0.98] disabled:opacity-50 text-white font-display font-semibold text-sm sm:text-base inline-flex items-center gap-2 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] whitespace-nowrap shrink-0"
+            className="h-12 px-5 sm:px-6 rounded-xl bg-[var(--accent-basil-solid)] hover:bg-[var(--accent-basil-solid-hover)] active:scale-[0.98] disabled:opacity-50 text-white font-display font-semibold text-sm sm:text-base inline-flex items-center gap-2 shadow-[0_1px_2px_rgb(0_0_0/0.05)] transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-basil)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
           >
             <span>Proceed to checkout</span>
-            <ArrowRight className="h-4 w-4" />
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </div>
